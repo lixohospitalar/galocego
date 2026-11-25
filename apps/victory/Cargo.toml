@@ -21,6 +21,8 @@ clap.workspace = true
 walkdir.workspace = true
 
 [features]
+# Select the app-local DirectX 12 Agility runtime (install its DLLs separately).
+agility = []
 # Debug-level logs and the debugging switches (frame capture, stack dumps,
 # the host debug layer, scripted keys). Off in a plain release build.
 diagnostics = [

@@ -231,3 +231,15 @@ pub(crate) fn default_paths(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>> {
     );
     Ok(all)
 }
+
+// Windows 10 needs an app-local Direct3D 12 runtime for shader model 6.6.
+// Opt in only when the matching DLLs are installed beside this executable.
+#[cfg(all(windows, feature = "agility"))]
+#[used]
+#[unsafe(no_mangle)]
+pub static D3D12SDKVersion: u32 = 606;
+
+#[cfg(all(windows, feature = "agility"))]
+#[used]
+#[unsafe(no_mangle)]
+pub static D3D12SDKPath: &u8 = &b".\\D3D12\\\0"[0];
