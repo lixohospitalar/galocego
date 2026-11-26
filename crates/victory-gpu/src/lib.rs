@@ -29,6 +29,8 @@ pub mod fence;
 pub mod frame;
 #[cfg(windows)]
 mod host;
+#[cfg(all(windows, feature = "diagnostics"))]
+mod hud;
 #[cfg(windows)]
 mod indirect;
 #[cfg(windows)]

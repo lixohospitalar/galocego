@@ -7128,6 +7128,8 @@ struct Presenter {
     ahead: Vec<(HostList, u64)>,
     hwnd: HWND,
     meter: Meter,
+    #[cfg(feature = "diagnostics")]
+    hud: crate::hud::Hud,
 }
 
 /// The frame rate, shown in the window's caption every second and logged
@@ -7158,7 +7160,13 @@ impl Meter {
     }
 
     /// Counts a presented frame.
-    fn frame(&mut self, hwnd: HWND) {
+    fn frame(
+        &mut self,
+        hwnd: HWND,
+        #[cfg(feature = "diagnostics")] host: &Host,
+        #[cfg(feature = "diagnostics")] hud: &mut crate::hud::Hud,
+        #[cfg(feature = "diagnostics")] size: (u32, u32),
+    ) {
         #[cfg(feature = "diagnostics")]
         tracing::debug!(target: "victory_gpu::frame", token = crate::frame::current(), "present");
         #[cfg(feature = "diagnostics")]
@@ -7191,6 +7199,13 @@ impl Meter {
         });
         let dropped = crate::draw::take_dropped() as f64 / frames;
         let indirect = crate::list::take_indirect() as f64 / frames;
+        #[cfg(feature = "diagnostics")]
+        if crate::hud::enabled() {
+            hud.update(host, [
+                &format!("{fps:.1} FPS   {ms:.1} ms/quadro   Descartes {dropped:.0}/q"),
+                &format!("Preparo {cpu:.1} ms   Copias {copy_ms:.1} ms   Readback {back_ms:.1} ms"),
+            ], size);
+        }
         let mesh_largest = MESH_GROUPS[0].swap(0, Ordering::Relaxed);
         let mesh_groups = MESH_GROUPS[1].swap(0, Ordering::Relaxed) as f64 / frames;
         tracing::info!(
@@ -7502,9 +7517,21 @@ impl Host {
             ]);
             list.CopyResource(&back, texture);
             #[cfg(feature = "diagnostics")]
-            let capture = crate::capture::wanted(frame)
-                .then(|| crate::capture::read_back(&self.device, list, texture))
-                .flatten();
+            let hud_drawn = p.hud.copy(copy, &back, p.hwnd);
+            #[cfg(feature = "diagnostics")]
+            let capture_back = hud_drawn && crate::capture::wanted(frame);
+            #[cfg(not(feature = "diagnostics"))]
+            let capture_back = false;
+            let back_state = if capture_back {
+                list.ResourceBarrier(&[transition(&back, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_COPY_SOURCE)]);
+                D3D12_RESOURCE_STATE_COPY_SOURCE
+            } else {
+                D3D12_RESOURCE_STATE_COPY_DEST
+            };
+            #[cfg(feature = "diagnostics")]
+            let capture = crate::capture::wanted(frame).then(|| {
+                crate::capture::read_back(&self.device, list, if capture_back { &back } else { texture })
+            }).flatten();
             #[cfg(feature = "diagnostics")]
             let probe = if slot.is_some() { None } else { crate::capture::probe(&self.device, list, texture) };
             #[cfg(not(feature = "diagnostics"))]
@@ -7513,7 +7540,7 @@ impl Host {
                 transition(texture, D3D12_RESOURCE_STATE_COPY_SOURCE, state),
                 transition(
                     &back,
-                    D3D12_RESOURCE_STATE_COPY_DEST,
+                    back_state,
                     D3D12_RESOURCE_STATE_PRESENT,
                 ),
             ]);
@@ -7530,7 +7557,15 @@ impl Host {
                 crate::capture::save_read_back(frame, &buffer, &footprint);
             }
             let _ = p.swap_chain.Present(0, DXGI_PRESENT(0));
-            p.meter.frame(p.hwnd);
+            p.meter.frame(
+                p.hwnd,
+                #[cfg(feature = "diagnostics")]
+                self,
+                #[cfg(feature = "diagnostics")]
+                &mut p.hud,
+                #[cfg(feature = "diagnostics")]
+                (width, height),
+            );
             #[cfg(feature = "diagnostics")]
             return Some(probe.is_some_and(|b| crate::capture::black(&b)));
             #[cfg(not(feature = "diagnostics"))]
@@ -7581,6 +7616,8 @@ impl Host {
                 ahead: Vec::new(),
                 hwnd,
                 meter: Meter::new(),
+                #[cfg(feature = "diagnostics")]
+                hud: crate::hud::Hud::default(),
             })
         }
     }
